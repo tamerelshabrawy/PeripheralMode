@@ -9,6 +9,25 @@
         <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no" />
         <link rel="apple-touch-icon" href="icon-192.png" />
         <meta name="mobile-web-app-capable" content="yes" />
+        <!-- Unregister any stale caching service worker FIRST -->
+        <script>
+            if ('serviceWorker' in navigator) {
+                navigator.serviceWorker.getRegistrations().then(function(registrations) {
+                    registrations.forEach(function(reg) {
+                        if (reg.active && reg.active.scriptURL.includes('pd4web.sw.js')) {
+                            reg.unregister().then(function() {
+                                console.log('[cleanup] Unregistered stale pd4web.sw.js');
+                                if ('caches' in window) {
+                                    caches.delete('webpatch-cache-v1').then(function() {
+                                        console.log('[cleanup] Deleted webpatch-cache-v1');
+                                    });
+                                }
+                            });
+                        }
+                    });
+                });
+            }
+        </script>
         <!-- Always BEFORE pd4web.js (it updates COI) -->
         <script src="./pd4web.threads.js"></script>
         <!-- Main modules -->
@@ -131,7 +150,7 @@
         <script>
             const statusElement = document.getElementById("status");
             const progressElement = document.getElementById("progress");
-            function fetchWithProgress(url) {
+            function fetchWithProgress(url, label) {
                 return new Promise((resolve, reject) => {
                     const xhr = new XMLHttpRequest();
                     xhr.open("GET", url, true);
@@ -140,25 +159,27 @@
                         if (event.lengthComputable) {
                             const percent = Math.floor((event.loaded / event.total) * 100);
                             progressElement.value = percent;
-                            statusElement.textContent = `Downloading WASM... ${percent}%`;
+                            statusElement.textContent = label + " " + percent + "%";
                         }
                     };
                     xhr.onload = () => {
                         if (xhr.status === 200) {
                             resolve(xhr.response);
                         } else {
-                            reject(new Error(`Failed to load ${url}, status ${xhr.status}`));
+                            reject(new Error("Failed to load " + url + ", status " + xhr.status));
                         }
                     };
-                    xhr.onerror = () => reject(new Error(`Network error loading ${url}`));
+                    xhr.onerror = () => reject(new Error("Network error loading " + url));
                     xhr.send();
                 });
             }
         </script>
 
         <script>
-            fetchWithProgress("./pd4web.wasm")
+            fetchWithProgress("./pd4web.wasm", "Downloading engine...")
                 .then((wasmBuffer) => {
+                    statusElement.textContent = "Initializing...";
+                    progressElement.removeAttribute("value");
                     Pd4WebModule({ wasmBinary: wasmBuffer }).then((Pd4WebModulePromise) => {
                         const Pd4Web = new Pd4WebModulePromise.Pd4Web();
 
