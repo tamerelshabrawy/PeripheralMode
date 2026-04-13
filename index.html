@@ -191,6 +191,11 @@
                             soundToggleId: "Pd4WebAudioSwitch",
                         });
 
+                        // Auto-start audio on first user tap (browser autoplay policy requires gesture)
+                        document.body.addEventListener("click", () => {
+                            Pd4Web.toggleAudio();
+                        }, { once: true });
+
                         // Start GPS → Pd bridge (sends zone, family, walk_progress)
                         startGpsBridge(Pd4Web);
 
