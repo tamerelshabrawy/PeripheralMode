@@ -194,12 +194,7 @@
                         // Start GPS → Pd bridge (sends zone, family, walk_progress)
                         startGpsBridge(Pd4Web);
 
-                        // Start AI classifier (YAMNet, active only in zones 32-35)
-                        if (window.AiClassifierBridge && typeof window.AiClassifierBridge.start === "function") {
-                            window.AiClassifierBridge.start().catch((err) => {
-                                console.warn("AI classifier start deferred:", err.message);
-                            });
-                        }
+                        // AI classifier is started/stopped by gps_pd_bridge.js when zone enters/leaves 32–35
 
                         const wasmLoader = document.getElementById("wasm-loader");
                         statusElement.style.display = "none";
