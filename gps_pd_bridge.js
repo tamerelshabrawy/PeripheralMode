@@ -48,7 +48,6 @@
         var progress = GeoLogic.projectOntoPolyline(lon, lat, GeoLogic.ROUTE_LINE);
         var zone = GeoLogic.progressToZone(progress);
         var label = GeoLogic.zoneToTrackLabel(zone);
-        sendToPd("walk_progress", progress);
 
         if (zone !== _currentZone) {
             if (zone !== _pendingZone) {
