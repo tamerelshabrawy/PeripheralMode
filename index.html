@@ -191,10 +191,18 @@
                             soundToggleId: "Pd4WebAudioSwitch",
                         });
 
-                        // Start GPS → Pd bridge (sends zone, family, walk_progress)
+                        // Start GPS → Pd bridge (sends zone, family)
                         startGpsBridge(Pd4Web);
 
-                        // AI classifier is started/stopped by gps_pd_bridge.js when zone enters/leaves 32–35
+                        // Start AI classifier once at startup (uses pd4web's existing
+                        // AudioContext and mic stream — no second AudioContext on iOS).
+                        // The classifier's onaudioprocess zone-gates classification
+                        // to zones 32–35 internally, so it is safe to start early.
+                        if (window.AiClassifierBridge) {
+                            window.AiClassifierBridge.start().catch(function (err) {
+                                console.warn('[AiClassifierBridge] startup start() failed:', err);
+                            });
+                        }
 
                         const wasmLoader = document.getElementById("wasm-loader");
                         statusElement.style.display = "none";

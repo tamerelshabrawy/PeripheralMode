@@ -388,6 +388,24 @@
     AiClassifier.prototype._ensureMicrophone = function () {
         var self = this;
         if (self.mediaStream) return Promise.resolve();
+        /* Reuse pd4web's AudioContext — never create a second one on iOS.
+           Pd4WebAudioContext is the global AudioContext set by pd4web.js.
+           If it isn't ready yet (audio worklet not started), wait for it. */
+        var pd4webCtx = window.Pd4WebAudioContext || null;
+        if (!pd4webCtx) {
+            console.warn('[AiClassifierBridge] Pd4WebAudioContext not yet available — mic pipeline deferred.');
+            return Promise.resolve();
+        }
+        /* pd4web already called getUserMedia and has a mic stream running through
+           its AudioWorklet.  We tap that same stream by asking for it again with
+           identical constraints so the browser can de-duplicate the track on iOS.
+           If pd4web exposes its stream directly we will use that; otherwise we
+           call getUserMedia once (the browser shares the same physical track). */
+        var existingStream = window._pd4webMicStream || null;
+        if (existingStream) {
+            self._buildAudioPipeline(existingStream);
+            return Promise.resolve();
+        }
         return navigator.mediaDevices.getUserMedia({
             audio: {
                 echoCancellation: false,
@@ -403,10 +421,15 @@
 
     AiClassifier.prototype._buildAudioPipeline = function (stream) {
         var self = this;
-        if (!self.audioCtx) {
-            self.audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+        /* Always reuse pd4web's AudioContext — NEVER create a new one.
+           window.Pd4WebAudioContext is set by pd4web.js when the audio
+           worklet node is created (JS_CreateAudioWorkletNode). */
+        var ctx = window.Pd4WebAudioContext;
+        if (!ctx) {
+            console.error('[AiClassifierBridge] Pd4WebAudioContext unavailable — cannot build audio pipeline.');
+            return;
         }
-        var ctx = self.audioCtx;
+        self.audioCtx = ctx;
         self.mediaStream = stream;
 
         /* WebAudio chain: source → gain → highpass → lowpass → analyser → silent sink */
@@ -652,6 +675,8 @@
     AiClassifier.prototype._sendAllToPd = function (snap) {
         var p  = snap.probabilities;
         var pa = snap.params;
+
+        /* ── Debug sends (kept for monitoring) ── */
         sendToPd('aiSilence', p.silence  || 0);
         sendToPd('aiChatter', p.chatter  || 0);
         sendToPd('aiHorn',    p.horn     || 0);
@@ -663,6 +688,60 @@
         sendToPd('aiPitch',   pa.pitchShift);
         sendToPd('aiStretch', pa.stretchTime);
         sendToPd('aiRmsDb',   snap.features.rmsDb);
+
+        /* ── Real street aura granular receivers (zones 32–35 only) ── */
+        var zone = window.currentZone || 0;
+        if (zone < 32 || zone > 35) return;
+
+        /* grain rate: grainCount 2–15, clamp to scene param range 5–12 */
+        var grainRate = Math.max(5, Math.min(12, pa.grainCount));
+        sendToPd('street06GrainRate_idlework', grainRate);
+
+        /* pitch high bound: scene param range is −1 to 12 semitones */
+        var pitchHi = Math.max(-1, Math.min(12, pa.pitchShift));
+        sendToPd('street06PitchHi_idlework', pitchHi);
+
+        /* pitch low bound: slightly below pitchHi, at least -1 */
+        var pitchLo = Math.max(-1, pitchHi - 2);
+        sendToPd('street06PitchLo_idlework', pitchLo);
+
+        /* stretch high: stretchTime 25–100 → 4.0–2.0 (inverse scale) */
+        var stretchHi = 4.0 - ((pa.stretchTime - 25) / 75) * 2.0;
+        stretchHi = Math.max(2.4, Math.min(4.0, stretchHi));
+        sendToPd('street06StretchHi_idlework', stretchHi);
+
+        /* stretch low: slightly below stretchHi */
+        var stretchLo = Math.max(2.0, stretchHi - 0.5);
+        sendToPd('street06StretchLo_idlework', stretchLo);
+
+        /* active class probabilities modulate granular expression */
+        var activeProb = 1 - (p.silence || 0);   /* 0=all silent, 1=active */
+
+        /* reverse probability: higher for horn/traffic, lower for calm sounds */
+        var reverseProb = Math.round(6 + activeProb * ((p.horn || 0) + (p.traffic || 0)) * 32);
+        reverseProb = Math.max(6, Math.min(38, reverseProb));
+        sendToPd('street06ReverseProb_idlework', reverseProb);
+
+        /* pitch probability: rises with chatter/birds/horn activity */
+        var pitchProb = Math.round(12 + activeProb * ((p.chatter || 0) + (p.birds || 0) + (p.horn || 0)) * 88);
+        pitchProb = Math.max(12, Math.min(100, pitchProb));
+        sendToPd('street06PitchProb_idlework', pitchProb);
+
+        /* envelope probability: rises with overall activity */
+        var envProb = Math.round(18 + activeProb * 82);
+        envProb = Math.max(18, Math.min(100, envProb));
+        sendToPd('street06EnvProb_idlework', envProb);
+
+        /* stretch probability: higher for sea/silence (smooth), lower for horn */
+        var stretchProb = Math.round(18 + ((p.sea || 0) + (p.silence || 0)) * 60);
+        stretchProb = Math.max(18, Math.min(100, stretchProb));
+        sendToPd('street06StretchProb_idlework', stretchProb);
+
+        /* wet/dry mix: dominant class confidence drives aura amount (0.08–1.0) */
+        var dominantProb = snap.probabilities[snap.stableClass] || 0;
+        var auraAmt = 0.08 + dominantProb * 0.92;
+        auraAmt = Math.max(0.08, Math.min(1.0, auraAmt));
+        sendToPd('auraAmt_idlework', auraAmt);
     };
 
     AiClassifier.prototype._sendNeutral = function () {

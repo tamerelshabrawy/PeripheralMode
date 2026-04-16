@@ -2,7 +2,6 @@
     "use strict";
     let _pd = null, _watchId = null, _currentZone = -1, _currentFamily = -1, _onUpdate = null;
     let _pendingZone = -1, _zoneTimer = null;
-    let _classifierStarted = false;
     var ZONE_DEBOUNCE_MS = 3000;
 
     function sendToPd(receiver, value) {
@@ -17,19 +16,6 @@
         var family = GeoLogic.zoneToFamily(zone);
         var label = GeoLogic.zoneToTrackLabel(zone);
         sendToPd("zone", zone);
-        if (zone >= 32 && zone <= 35 && !_classifierStarted && window.AiClassifierBridge) {
-            _classifierStarted = true;
-            window.AiClassifierBridge.start().catch(function (err) {
-                _classifierStarted = false;
-                console.warn("[gps_pd_bridge] AI classifier start failed:", err);
-            });
-            console.log("[gps_pd_bridge] AI classifier started (zone " + zone + ", Track 4)");
-        }
-        if (zone < 32 && _classifierStarted && window.AiClassifierBridge) {
-            window.AiClassifierBridge.stop();
-            _classifierStarted = false;
-            console.log("[gps_pd_bridge] AI classifier stopped (zone " + zone + ")");
-        }
         console.log("[gps_pd_bridge] ZONE", zone, "(" + label + ") | debounced");
         if (family !== _currentFamily) {
             _currentFamily = family;
@@ -92,20 +78,6 @@
         window.currentZone = z;
         sendToPd("zone", z);
         sendToPd("family", _currentFamily);
-        // Start/stop AI classifier based on zone
-        if (z >= 32 && z <= 35 && !_classifierStarted && window.AiClassifierBridge) {
-            _classifierStarted = true;
-            window.AiClassifierBridge.start().catch(function (err) {
-                _classifierStarted = false;
-                console.warn("[gps_pd_bridge] AI classifier start failed:", err);
-            });
-            console.log("[gps_pd_bridge] AI classifier started (manual zone " + z + ")");
-        }
-        if (z < 32 && _classifierStarted && window.AiClassifierBridge) {
-            window.AiClassifierBridge.stop();
-            _classifierStarted = false;
-            console.log("[gps_pd_bridge] AI classifier stopped (manual zone " + z + ")");
-        }
         console.log("[gps_pd_bridge] manual zone:", z, "family:", _currentFamily, "(" + GeoLogic.zoneToTrackLabel(z) + ")");
     }
 
